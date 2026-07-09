@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Place at /system/etc/permissions/ (or product/system_ext equivalent for your ROM). -->
+<permissions>
+    <privapp-permissions package="ph.dgsd.benos.attestmon">
+        <permission name="android.permission.SCHEDULE_EXACT_ALARM"/>
+        <permission name="android.permission.INTERNET"/>
+        <permission name="android.permission.ACCESS_NETWORK_STATE"/>
+        <permission name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+        <permission name="android.permission.FORGROUND_SERVICE"/>
+        <permission name="android.permission.FORGROUND_SERVICE_SPECIAL_USE"/>
+        <permission name="android.permission.POST_NOTIFICATIONS"/>
+        <permission name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    </privapp-permissions>
+</permissions>
