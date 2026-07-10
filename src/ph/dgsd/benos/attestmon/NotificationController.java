@@ -4,7 +4,10 @@ import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
+import android.graphics.drawable.Icon;
 import android.os.PowerManager;
 
 /**
@@ -22,6 +25,10 @@ public final class NotificationController {
     private static final String CH_ALERT  = "alert";
     private static final int ID_ONGOING = 1;
     private static final int ID_ALERT   = 2;
+
+    // Distinct request code so the manual-check PendingIntent never collides
+    // with the poll alarm's getBroadcast(requestCode=0).
+    private static final int RC_CHECK_NOW = 1;
 
     private final Context ctx;
     private final Prefs prefs;
@@ -59,6 +66,7 @@ public final class NotificationController {
                 .setContentText(body(v))
                 .setOngoing(true)
                 .setShowWhen(false)
+                .addAction(checkNowAction())   // shown only when expanded; hidden on collapse
                 .build();
     }
 
@@ -112,6 +120,21 @@ public final class NotificationController {
                 .setAutoCancel(true)
                 .build();
         nm.notify(ID_ALERT, n);              // fixed id => coalesces if user hasn't dismissed
+    }
+
+    /**
+     * "Check again" action: fires an immediate manual poll by starting the
+     * service with ACTION_CHECK (runs doCheck(false), which re-evaluates and
+     * routes back through onVerdict). Immutable, same-uid explicit intent.
+     */
+    private Notification.Action checkNowAction() {
+        Intent svc = new Intent(ctx, MonitorService.class)
+                .setAction(MonitorService.ACTION_CHECK);
+        PendingIntent pi = PendingIntent.getForegroundService(
+                ctx, RC_CHECK_NOW, svc,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Icon icon = Icon.createWithResource(ctx, android.R.drawable.ic_popup_sync);
+        return new Notification.Action.Builder(icon, "Check again", pi).build();
     }
 
     private boolean isUserPresent() {
