@@ -23,6 +23,7 @@ public final class MonitorService extends Service {
     private static final long POLL_NORMAL_MS   = 30L * 60L * 1000L;   // 30 min
     private static final long POLL_FIRSTRUN_MS =  5L * 60L * 1000L;   //  5 min
     private static final long POLL_FLIP_MS     = 15L * 60L * 1000L;   // 15 min
+    private static final long POLL_UNTRUSTED_MS = 5L * 60L * 1000L;   // retry cadence while clock < trust floor
 
     // Fast-phase window durations.
     private static final long WINDOW_FIRSTRUN_MS = 30L * 60L * 1000L; // 30 min
@@ -73,6 +74,17 @@ public final class MonitorService extends Service {
     }
 
     private void doCheck(boolean isStart) {
+        // Don't run the check until the wall clock is past the trust floor.
+        // Pre-sync the clock reads the base-ROM build date and there's no network
+        // yet, so teesim can't have a keybox and any verdict now is meaningless --
+        // worse, it would latch a bogus freshness origin / phase state. Defer and
+        // retry soon; registerClockReceiver() also kicks a check the instant time
+        // syncs, so in practice the first real check lands right at correction.
+        if (!Prefs.clockTrusted()) {
+            Log.i(App.TAG, "clock below trust floor; deferring check until time sync");
+            scheduleIn(POLL_UNTRUSTED_MS);
+            return;
+        }
         try {
             // Keep ourselves on the spoof target list *before* generating the
             // probe key, so the spoof applies to it. A newly-added event (at any
@@ -189,12 +201,16 @@ public final class MonitorService extends Service {
     }
 
     private void scheduleNext(Phase phase) {
+        scheduleIn(intervalFor(phase));
+    }
+
+    private void scheduleIn(long intervalMs) {
         AlarmManager am = getSystemService(AlarmManager.class);
         if (am == null) return;
         Intent i = new Intent(this, AlarmReceiver.class).setAction(ACTION_CHECK);
         PendingIntent pi = PendingIntent.getBroadcast(this, 0, i,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        long triggerAt = SystemClock.elapsedRealtime() + intervalFor(phase);
+        long triggerAt = SystemClock.elapsedRealtime() + intervalMs;
         try {
             if (am.canScheduleExactAlarms()) {
                 am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
@@ -224,12 +240,17 @@ public final class MonitorService extends Service {
      * phase's deadline was anchored to the bad clock -- so on the correction, kick
      * an immediate check. applyPhase re-anchors the deadline and we surface the
      * fresh verdict now instead of waiting up to a full poll interval. Ignored in
-     * NORMAL so ordinary time adjustments don't trigger check storms.
+     * NORMAL so ordinary time adjustments don't trigger check storms -- except
+     * when we've never completed a check (initialized() is false), which means
+     * the first run was deferred by the trust-floor gate in doCheck; then the
+     * correcting jump is exactly our cue to run it, so we kick even in NORMAL.
      */
     private void registerClockReceiver() {
         clockReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
-                if (Prefs.clockTrusted() && prefs.phase() != Phase.NORMAL) {
+                boolean deferredFirstRun = !prefs.initialized();
+                if (Prefs.clockTrusted()
+                        && (prefs.phase() != Phase.NORMAL || deferredFirstRun)) {
                     Intent svc = new Intent(c, MonitorService.class).setAction(ACTION_CHECK);
                     c.startForegroundService(svc);
                 }
