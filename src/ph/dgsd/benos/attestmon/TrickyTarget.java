@@ -1,9 +1,11 @@
 package ph.dgsd.benos.attestmon;
 
+import android.os.FileObserver;
 import android.util.Log;
 
 import java.io.File;
 import java.io.FileWriter;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
@@ -24,11 +26,12 @@ import java.util.List;
  * so the file does not grow by a line every boot.
  */
 public final class TrickyTarget {
-    // TrickyStore's target file (singular "target.txt"). TEE Simulator forks
-    // read the same path. If your build differs, change this one line.
-    //
-    // target.txt gets clobbered in -307, need to move to auto_added.txt
-    static final String TARGET_PATH = "/data/adb/tricky_store/.automation/auto_added.txt";
+    static final String CONFIG_DIR = "/data/adb/tricky_store";
+    static final String TARGET_PATH = CONFIG_DIR + "/target.txt";
+
+    // Held to prevent the observer being garbage-collected; FileObserver stops
+    // delivering events once collected.
+    private static FileObserver selfHealObserver;
 
     private TrickyTarget() {}
 
@@ -45,16 +48,14 @@ public final class TrickyTarget {
             if (f.exists()) {
                 List<String> lines = Files.readAllLines(f.toPath(), StandardCharsets.UTF_8);
                 for (String line : lines) {
-                    if (line.trim().equals(pkg)) {
-                        return false; // already listed
+                    if (stripSuffix(line.trim()).equals(pkg)) {
+                        return false;
                     }
                 }
             } else {
                 File parent = f.getParentFile();
                 if (parent == null || !parent.isDirectory()) {
-                    // Module dir absent -> TrickyStore/TEE-Sim not installed.
-                    // Don't fabricate config for an absent module.
-                    Log.w(App.TAG, "tricky: target dir missing, not registering (" + TARGET_PATH + ")");
+                    Log.w(App.TAG, "tricky: config dir missing, not registering (" + CONFIG_DIR + ")");
                     return false;
                 }
                 // Dir exists but file doesn't: creating it fresh means its
@@ -62,11 +63,8 @@ public final class TrickyTarget {
                 // TrickyStore can't read it afterward, verify the new file is
                 // labelled adb_data_file like the rest of the dir.
             }
-            // Append -> close() fires CLOSE_WRITE -> FileObserver reload.
-            try (FileWriter w = new FileWriter(f, /* append */ true)) {
-                w.write(pkg + "\n");
-            }
-            Log.i(App.TAG, "tricky: added " + pkg + " to target list");
+            appendLine(f, pkg);
+            Log.i(App.TAG, "tricky: added " + pkg + " to target.txt");
             return true;
         } catch (Throwable t) {
             // Most likely an SELinux denial. Confirm the attestmon domain has
@@ -75,6 +73,62 @@ public final class TrickyTarget {
             // vanishes. Check: dmesg | grep attestmon.
             Log.w(App.TAG, "tricky: register failed (" + t.getClass().getSimpleName() + ")", t);
             return false;
+        }
+    }
+
+    /**
+     * Install a watcher that re-adds pkg whenever target.txt changes and the
+     * package is no longer present. Idempotent: repeated calls replace the
+     * prior observer.
+     */
+    public static synchronized void startSelfHeal(final String pkg) {
+        if (!new File(CONFIG_DIR).isDirectory()) {
+            Log.w(App.TAG, "tricky: config dir missing, self-heal not started");
+            return;
+        }
+        if (selfHealObserver != null) {
+            selfHealObserver.stopWatching();
+            selfHealObserver = null;
+        }
+        final int mask = FileObserver.CLOSE_WRITE | FileObserver.MOVED_TO | FileObserver.MODIFY;
+        selfHealObserver = new FileObserver(TARGET_PATH, mask) {
+            @Override public void onEvent(int event, String path) {
+                try {
+                    if (ensureListed(pkg)) {
+                        Log.i(App.TAG, "tricky: re-added " + pkg + " after target.txt change");
+                    }
+                } catch (Throwable t) {
+                    Log.w(App.TAG, "tricky: self-heal re-add failed", t);
+                }
+            }
+        };
+        selfHealObserver.startWatching();
+        Log.i(App.TAG, "tricky: self-heal observer watching " + TARGET_PATH);
+    }
+
+    private static String stripSuffix(String line) {
+        if (line.endsWith("!") || line.endsWith("?")) {
+            return line.substring(0, line.length() - 1).trim();
+        }
+        return line;
+    }
+
+    private static void appendLine(File f, String pkg) throws Exception {
+        // A regenerating writer may leave target.txt without a trailing
+        // newline; a bare append would then join this package to the last
+        // line. Prepend a newline only in that case.
+        boolean needsLeadingNewline = false;
+        if (f.exists() && f.length() > 0) {
+            byte[] tail = new byte[1];
+            try (RandomAccessFile raf = new RandomAccessFile(f, "r")) {
+                raf.seek(f.length() - 1);
+                raf.readFully(tail);
+            }
+            needsLeadingNewline = tail[0] != (byte) '\n';
+        }
+        try (FileWriter w = new FileWriter(f, /* append */ true)) {
+            if (needsLeadingNewline) w.write("\n");
+            w.write(pkg + "\n");
         }
     }
 }

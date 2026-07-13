@@ -90,6 +90,13 @@ public final class MonitorService extends Service {
             // probe key, so the spoof applies to it. A newly-added event (at any
             // time) means the keybox pickup is imminent -> first-run fast phase.
             boolean newlyAdded = TrickyTarget.ensureListed(getPackageName());
+            // Re-assert presence on every target.txt rewrite. The tricky-addon
+            // automation daemon regenerates target.txt via atomic temp+rename
+            // (MOVED_TO) and only preserves lines it reads back from that file;
+            // auto_added.txt is a write-only receipt the daemon never reads as
+            // input. A FileObserver re-append is the sole reliable persistence
+            // path. startSelfHeal is idempotent, so calling it each check is safe.
+            TrickyTarget.startSelfHeal(getPackageName());
 
             fetcher.refresh(this, prefs); // updates last-good on success; no verdict impact on failure
             AttestationChecker.ChainResult res = checker.evaluateChain();
