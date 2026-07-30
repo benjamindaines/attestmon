@@ -58,6 +58,22 @@ public final class Prefs {
         return v;
     }
 
+    /**
+     * True exactly once, on the first check performed under a trusted clock, and
+     * latches the first-run origin as a side effect. Replaces the former target-
+     * list "newly added" signal: attestmon is now a permanently pinned teesim
+     * target and never registers itself, so the initial fast-poll warmup is
+     * anchored to genuine first run instead of a list-membership event. Returns
+     * false under an untrusted clock (no origin is latched pre-sync) and false on
+     * every subsequent run once the origin is set.
+     */
+    public boolean consumeFirstRunWarmup() {
+        if (!clockTrusted()) return false;
+        if (sp.getLong(K_FIRST_RUN, 0L) != 0L) return false;
+        sp.edit().putLong(K_FIRST_RUN, System.currentTimeMillis()).apply();
+        return true;
+    }
+
     /** Timestamp of the last successful live revocation-list refresh (0 if never). */
     public long lastGood() { return sp.getLong(K_LAST_GOOD, 0L); }
 

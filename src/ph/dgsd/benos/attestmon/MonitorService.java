@@ -86,17 +86,15 @@ public final class MonitorService extends Service {
             return;
         }
         try {
-            // Keep ourselves on the spoof target list *before* generating the
-            // probe key, so the spoof applies to it. A newly-added event (at any
-            // time) means the keybox pickup is imminent -> first-run fast phase.
-            boolean newlyAdded = TrickyTarget.ensureListed(getPackageName());
-            // Re-assert presence on every target.txt rewrite. The tricky-addon
-            // automation daemon regenerates target.txt via atomic temp+rename
-            // (MOVED_TO) and only preserves lines it reads back from that file;
-            // auto_added.txt is a write-only receipt the daemon never reads as
-            // input. A FileObserver re-append is the sole reliable persistence
-            // path. startSelfHeal is idempotent, so calling it each check is safe.
-            TrickyTarget.startSelfHeal(getPackageName());
+            // No self-registration: attestmon is a permanently pinned teesim
+            // target, enforced by the forked ta-enhanced automation daemon
+            // (rust/src/automation/target.rs PINNED + service.sh seed), so the
+            // spoof already applies to the probe key without any target.txt write
+            // from this process. The initial fast-poll warmup is driven off
+            // genuine first run instead of a list-membership event: on the first
+            // clock-trusted check the keybox pickup is imminent, so poll fast
+            // until a stable verdict lands.
+            boolean firstRunWarmup = prefs.consumeFirstRunWarmup();
 
             fetcher.refresh(this, prefs); // updates last-good on success; no verdict impact on failure
             AttestationChecker.ChainResult res = checker.evaluateChain();
@@ -109,7 +107,7 @@ public final class MonitorService extends Service {
 
             Log.i(App.TAG, "check: " + v + " (" + res.detail + ", stale=" + stale + ")");
 
-            applyPhase(isStart, newlyAdded, v);
+            applyPhase(isStart, firstRunWarmup, v);
             notifier.onVerdict(v);
         } catch (Throwable t) {
             Log.e(App.TAG, "doCheck failed", t);
@@ -144,7 +142,7 @@ public final class MonitorService extends Service {
      * lastVerdict is tracked here independently of the notifier's lastSeen so the
      * flip is detected from the *actual* verdict even when alerts are held (locked).
      */
-    private void applyPhase(boolean isStart, boolean newlyAdded, Verdict v) {
+    private void applyPhase(boolean isStart, boolean firstRunWarmup, Verdict v) {
         long now = System.currentTimeMillis();
         boolean trusted = Prefs.clockTrusted();
         Phase phase = prefs.phase();
@@ -161,7 +159,7 @@ public final class MonitorService extends Service {
 
         // Under an untrusted clock, never treat the phase as expired.
         boolean liveFastPhase = phase != Phase.NORMAL && (!trusted || now < deadline);
-        if (newlyAdded) {
+        if (firstRunWarmup) {
             phase = Phase.FAST_FIRSTRUN;
             deadline = now + WINDOW_FIRSTRUN_MS;
         } else if (isStart && !liveFastPhase) {

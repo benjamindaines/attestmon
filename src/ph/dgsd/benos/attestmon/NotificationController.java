@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.Icon;
 import android.os.PowerManager;
+import ph.dgsd.benos.attestmon.R;
 
 /**
  * Two channels:
@@ -63,7 +64,7 @@ public final class NotificationController {
         return new Notification.Builder(ctx, CH_STATUS)
                 .setSmallIcon(iconFor(v))
                 .setContentTitle(title(v))
-                .setContentText(body(v))
+              //  .setContentText(body(v))
                 .setOngoing(true)
                 .setShowWhen(false)
                 .addAction(checkNowAction())   // shown only when expanded; hidden on collapse
@@ -147,9 +148,9 @@ public final class NotificationController {
 
     private static int iconFor(Verdict v) {
         switch (v) {
-            case VALID:   return android.R.drawable.presence_online;
+            case VALID:   return R.drawable.thumbs_up;
             case STALE:   return android.R.drawable.stat_sys_warning;
-            case INVALID:
+            case INVALID: return R.drawable.thumbs_down;
             default:      return android.R.drawable.stat_notify_error;
         }
     }
@@ -157,7 +158,7 @@ public final class NotificationController {
     private static String title(Verdict v) {
         switch (v) {
             case VALID:   return "Attestation valid";
-            case STALE:   return "Attestation unconfirmed";
+            case STALE:   return "Unable to verify attestation. Check network.";
             case INVALID:
             default:      return "Attestation INVALID";
         }
