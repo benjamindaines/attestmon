@@ -29,7 +29,7 @@ public final class MonitorService extends Service {
     private static final long WINDOW_FIRSTRUN_MS = 30L * 60L * 1000L; // 30 min
     private static final long WINDOW_FLIP_MS     = 90L * 60L * 1000L; // 90 min
 
-    private static final long STALE_WINDOW_MS  = 3L * 24L * 60L * 60L * 1000L; // 3 days
+    private static final long STALE_WINDOW_MS  = 1L * 24L * 60L * 60L * 1000L; // 1 day, was 3 days. v1.0.1
 
     private Prefs prefs;
     private AttestationChecker checker;
@@ -96,10 +96,16 @@ public final class MonitorService extends Service {
             // until a stable verdict lands.
             boolean firstRunWarmup = prefs.consumeFirstRunWarmup();
 
-            fetcher.refresh(this, prefs); // updates last-good on success; no verdict impact on failure
+            fetcher.refresh(this, prefs); // updates last-good on success (incl. 304); no verdict impact on failure
             AttestationChecker.ChainResult res = checker.evaluateChain();
 
             boolean stale = (System.currentTimeMillis() - prefs.freshnessOrigin()) > STALE_WINDOW_MS;
+            // Staleness-recovery: previously lacked handling for 304 (unchanged) returns.
+	    // This fixes issue where cache would report as stale after 3 days with no CHANGE
+	    // in the revoke list, rather than 3 days of not being able to refresh it.
+            if (stale && fetcher.forceRefresh(this, prefs)) {
+                stale = (System.currentTimeMillis() - prefs.freshnessOrigin()) > STALE_WINDOW_MS;
+            }
             Verdict v;
             if (!res.valid)      v = Verdict.INVALID; // positively bad, regardless of freshness
             else if (stale)      v = Verdict.STALE;   // looks ok but can't confirm revocation

@@ -14,6 +14,8 @@ public final class Prefs {
     private static final String K_PHASE         = "phase";         // Phase name (poll cadence state)
     private static final String K_PHASE_DEADLINE= "phase_deadline";// epoch ms a fast phase ends (0 = none)
     private static final String K_LAST_VERDICT  = "last_verdict";  // last *computed* verdict, for transition detection
+    private static final String K_ETAG          = "etag";          // HTTP validator from last 200 (null if none)
+    private static final String K_LAST_MODIFIED = "last_modified"; // HTTP Last-Modified from last 200 (null if none)
 
     /**
      * Epoch-ms floor below which the wall clock is treated as unset. Before a
@@ -143,4 +145,24 @@ public final class Prefs {
         return s == null ? null : Verdict.valueOf(s);
     }
     public void setLastVerdict(Verdict v) { sp.edit().putString(K_LAST_VERDICT, v.name()).apply(); }
+
+    // ---- HTTP conditional-request validators ----
+    // Stored from the last full (200) status-list fetch so the next fetch can be
+    // conditional. A 304 response to such a request confirms the on-disk cache is
+    // current without re-downloading it, and is treated as a successful refresh.
+
+    /** ETag from the last 200 response, or null if none was stored. */
+    public String etag() { return sp.getString(K_ETAG, null); }
+
+    /** Last-Modified header value from the last 200 response, or null if none. */
+    public String lastModified() { return sp.getString(K_LAST_MODIFIED, null); }
+
+    /** Persist (or clear, on null) the validators returned by a 200 response. */
+    public void setValidators(String etag, String lastModified) {
+        SharedPreferences.Editor e = sp.edit();
+        if (etag == null) e.remove(K_ETAG); else e.putString(K_ETAG, etag);
+        if (lastModified == null) e.remove(K_LAST_MODIFIED);
+        else e.putString(K_LAST_MODIFIED, lastModified);
+        e.apply();
+    }
 }
