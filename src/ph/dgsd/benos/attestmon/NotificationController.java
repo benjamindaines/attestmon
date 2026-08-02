@@ -44,7 +44,7 @@ public final class NotificationController {
 
     private void ensureChannels() {
         NotificationChannel status = new NotificationChannel(
-                CH_STATUS, "Monitor status", NotificationManager.IMPORTANCE_LOW);
+                CH_STATUS, "Monitor status", NotificationManager.IMPORTANCE_MIN);
         status.setShowBadge(false);
         status.setSound(null, null);
 
@@ -116,10 +116,16 @@ public final class NotificationController {
                 .setSmallIcon(iconFor(v))
                 .setContentTitle(title(v))
                 .setContentText(body(v))
-                .setStyle(new Notification.BigTextStyle().bigText(body(v)))
+                //.setStyle(new Notification.BigTextStyle().bigText(body(v)))
                 .setCategory(Notification.CATEGORY_STATUS)
                 .setAutoCancel(true)
                 .build();
+        // OS auto groups notifications, causing a condition where a new state notification 
+        // carries the old state notification icon in the status bar. This would imply to the
+        // user that the state is still bad, after it has been detected as new. Attempted solution
+        // is the clear the stale notification before posting the new one. NOTE: my need to be
+        // addressed in future Android versions if the notification grouping behavior is changed.
+        nm.cancel(ID_ALERT);
         nm.notify(ID_ALERT, n);              // fixed id => coalesces if user hasn't dismissed
     }
 

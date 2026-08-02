@@ -28,7 +28,7 @@ public final class Prefs {
      * Set this to your BenOS build epoch. Anything at/after flash is >= this;
      * the pre-sync boot clock is below it.
      */
-    public static final long CLOCK_TRUSTED_FLOOR = 1782144213000L; 
+    public static final long CLOCK_TRUSTED_FLOOR = 1785551962000L;
 
     /** True once the wall clock has advanced past the trust floor (time-synced). */
     public static boolean clockTrusted() {
